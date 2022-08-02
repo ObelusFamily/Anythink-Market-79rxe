@@ -14,8 +14,7 @@ const Banner = (props) => {
     });
   };
 
-
- return (
+  return (
     <div className="banner text-white">
       <div className="container p-4 text-center">
         <img src={logo} alt="banner" />
