@@ -1,3 +1,5 @@
+import logging
+import time
 from typing import List, Optional, Sequence, Union
 
 from asyncpg import Connection, Record
@@ -19,7 +21,11 @@ from app.db.repositories.tags import TagsRepository
 from app.models.domain.items import Item
 from app.models.domain.users import User
 
+from app.models.domain.profiles import Profile
+
 SELLER_USERNAME_ALIAS = "seller_username"
+SELLER_ID_ALIAS = "seller_id"
+SELLER_BIO_ALIAS = "seller_bio"
 SLUG_ALIAS = "slug"
 
 CAMEL_OR_SNAKE_CASE_TO_WORDS = r"^[a-z\d_\-]+|[A-Z\d_\-][^A-Z\d_\-]*"
@@ -116,6 +122,8 @@ class ItemsRepository(BaseRepository):  # noqa: WPS214
         # fmt: off
         query = Query.from_(
             items,
+        ).join(users).on(
+            items.seller_id == users.id
         ).select(
             items.id,
             items.slug,
@@ -125,16 +133,10 @@ class ItemsRepository(BaseRepository):  # noqa: WPS214
             items.image,
             items.created_at,
             items.updated_at,
-            Query.from_(
-                users,
-            ).where(
-                users.id == items.seller_id,
-            ).select(
-                users.username,
-            ).as_(
-                SELLER_USERNAME_ALIAS,
-            ),
-        )
+            users.image,
+            users.username,
+            users.bio,
+        ).offset(offset).limit(limit)
         # fmt: on
 
         if tag:
@@ -142,7 +144,7 @@ class ItemsRepository(BaseRepository):  # noqa: WPS214
             query_params_count += 1
 
             # fmt: off
-            query = query.join(
+            query1 = query.join(
                 items_to_tags,
             ).on(
                 (items.id == items_to_tags.item_id) & (
@@ -197,15 +199,37 @@ class ItemsRepository(BaseRepository):  # noqa: WPS214
             )
             # fmt: on
 
-        query = query.limit(Parameter(query_params_count + 1)).offset(
-            Parameter(query_params_count + 2),
-        )
-        query_params.extend([limit, offset])
+        # query = query.limit(Parameter(query_params_count + 1)).offset(
+        #     Parameter(query_params_count + 2),
+        # )
+        # query_params.extend([limit, offset])
 
+        # start = time.time()
         items_rows = await self.connection.fetch(query.get_sql(), *query_params)
+        # end = time.time()
+        # print(end - start)
+        # logging.error(items_rows)
 
         return [
-            await self.get_item_by_slug(slug=item_row['slug'], requested_user=requested_user)
+            Item(
+                id_=item_row["id"],
+                slug=item_row["slug"],
+                title=item_row["title"],
+                description=item_row["description"],
+                body=item_row["body"],
+                image=item_row["image"],
+                seller=Profile(
+                    username=item_row["username"],
+                    bio=item_row["bio"],
+                    following=False,
+                    image=item_row["image"]
+                ),
+                tags=[],
+                favorites_count=0,
+                favorited=True if favorited else False,
+                created_at=item_row["created_at"],
+                updated_at=item_row["updated_at"],
+            )
             for item_row in items_rows
         ]
 
